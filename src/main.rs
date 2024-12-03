@@ -20,6 +20,11 @@ fn main() {
         "x{3}",
         "y{2,}",
         "z{1,3}",
+        "(foo)",
+        "(?:bar)",
+        "(?<name>baz)",
+        "(test)\\1",
+        "(?<num>\\d+)\\k<num>",
     ];
 
     for pattern in test_patterns {
@@ -35,7 +40,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ast::{AnchorType, Quantifier, RegexNode};
+    use ast::{AnchorType, BackreferenceKind, GroupKind, Quantifier, RegexNode};
 
     #[test]
     fn test_basic_parsing() {
@@ -147,5 +152,130 @@ mod tests {
             let result = parser.parse().unwrap();
             assert_eq!(result, expected);
         }
+    }
+
+    #[test]
+    fn test_capturing_group() {
+        let mut parser = Parser::new("(abc)");
+        let result = parser.parse().unwrap();
+        assert_eq!(
+            result,
+            vec![RegexNode::new_group(
+                GroupKind::Capturing(None),
+                vec![
+                    RegexNode::new_literal('a'),
+                    RegexNode::new_literal('b'),
+                    RegexNode::new_literal('c'),
+                ]
+            )]
+        );
+    }
+
+    #[test]
+    fn test_non_capturing_group() {
+        let mut parser = Parser::new("(?:abc)");
+        let result = parser.parse().unwrap();
+        assert_eq!(
+            result,
+            vec![RegexNode::new_group(
+                GroupKind::NonCapturing,
+                vec![
+                    RegexNode::new_literal('a'),
+                    RegexNode::new_literal('b'),
+                    RegexNode::new_literal('c'),
+                ]
+            )]
+        );
+    }
+
+    #[test]
+    fn test_named_group() {
+        let mut parser = Parser::new("(?<test>abc)");
+        let result = parser.parse().unwrap();
+        assert_eq!(
+            result,
+            vec![RegexNode::new_group(
+                GroupKind::Capturing(Some("test".to_string())),
+                vec![
+                    RegexNode::new_literal('a'),
+                    RegexNode::new_literal('b'),
+                    RegexNode::new_literal('c'),
+                ]
+            )]
+        );
+    }
+
+    #[test]
+    fn test_backreference_number() {
+        let mut parser = Parser::new("(a)\\1");
+        let result = parser.parse().unwrap();
+        assert_eq!(
+            result,
+            vec![
+                RegexNode::new_group(
+                    GroupKind::Capturing(None),
+                    vec![RegexNode::new_literal('a')]
+                ),
+                RegexNode::new_backreference(BackreferenceKind::NumberBased(1))
+            ]
+        );
+    }
+
+    #[test]
+    fn test_backreference_name() {
+        let mut parser = Parser::new("(?<test>a)\\k<test>");
+        let result = parser.parse().unwrap();
+        assert_eq!(
+            result,
+            vec![
+                RegexNode::new_group(
+                    GroupKind::Capturing(Some("test".to_string())),
+                    vec![RegexNode::new_literal('a')]
+                ),
+                RegexNode::new_backreference(BackreferenceKind::NameBased("test".to_string()))
+            ]
+        );
+    }
+
+    #[test]
+    fn test_nested_groups() {
+        let mut parser = Parser::new("(a(?:b(c)))");
+        let result = parser.parse().unwrap();
+        assert_eq!(
+            result,
+            vec![RegexNode::new_group(
+                GroupKind::Capturing(None),
+                vec![
+                    RegexNode::new_literal('a'),
+                    RegexNode::new_group(
+                        GroupKind::NonCapturing,
+                        vec![
+                            RegexNode::new_literal('b'),
+                            RegexNode::new_group(
+                                GroupKind::Capturing(None),
+                                vec![RegexNode::new_literal('c')]
+                            )
+                        ]
+                    )
+                ]
+            )]
+        );
+    }
+
+    #[test]
+    fn test_group_with_quantifier() {
+        let mut parser = Parser::new("(abc)+");
+        let result = parser.parse().unwrap();
+        assert_eq!(
+            result,
+            vec![RegexNode::new_group(
+                GroupKind::Capturing(None),
+                vec![
+                    RegexNode::new_literal('a'),
+                    RegexNode::new_literal('b'),
+                    RegexNode::new_literal('c'),
+                ]
+            ).with_quantifier(Quantifier::OneOrMore { lazy: false })]
+        );
     }
 }

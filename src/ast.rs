@@ -12,6 +12,20 @@ pub enum RegexNode {
         node: Box<RegexNode>,
         quantifier: Quantifier,
     },
+    Group(GroupKind, Vec<RegexNode>),
+    Backreference(BackreferenceKind),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum GroupKind {
+    Capturing(Option<String>), // None for unnamed, Some(name) for named groups
+    NonCapturing,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BackreferenceKind {
+    NumberBased(usize),     // \1, \2, etc.
+    NameBased(String),      // \k<name>
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -48,5 +62,13 @@ impl RegexNode {
             node: Box::new(self),
             quantifier,
         }
+    }
+
+    pub fn new_group(kind: GroupKind, nodes: Vec<RegexNode>) -> Self {
+        RegexNode::Group(kind, nodes)
+    }
+
+    pub fn new_backreference(kind: BackreferenceKind) -> Self {
+        RegexNode::Backreference(kind)
     }
 } 

@@ -1,8 +1,9 @@
-use crate::ast::{AnchorType, Quantifier, RegexNode};
+use crate::ast::{AnchorType, BackreferenceKind, GroupKind, Quantifier, RegexNode};
 
 pub struct Parser {
     input: Vec<char>,
     position: usize,
+    group_count: usize,
 }
 
 #[derive(Debug)]
@@ -12,6 +13,10 @@ pub enum ParseError {
     UnclosedCharacterClass,
     InvalidQuantifier,
     InvalidNumber,
+    UnclosedGroup,
+    InvalidGroupSyntax,
+    InvalidBackreference,
+    InvalidGroupName,
 }
 
 impl Parser {
@@ -19,6 +24,7 @@ impl Parser {
         Parser {
             input: input.chars().collect(),
             position: 0,
+            group_count: 0,
         }
     }
 
@@ -53,6 +59,7 @@ impl Parser {
                 self.parse_escape()?
             }
             '[' => self.parse_character_class()?,
+            '(' => self.parse_group()?,
             c => {
                 self.advance();
                 RegexNode::new_literal(c)
@@ -191,6 +198,57 @@ impl Parser {
         Ok(RegexNode::new_char_class(chars, negated))
     }
 
+    fn parse_group(&mut self) -> Result<RegexNode, ParseError> {
+        self.advance(); // consume '('
+        
+        let kind = if self.check_str("?:") {
+            GroupKind::NonCapturing
+        } else if self.check_char('?') {
+            self.advance();
+            if self.check_char('<') {
+                self.advance();
+                let name = self.parse_group_name()?;
+                GroupKind::Capturing(Some(name))
+            } else {
+                return Err(ParseError::InvalidGroupSyntax);
+            }
+        } else {
+            self.group_count += 1;
+            GroupKind::Capturing(None)
+        };
+
+        let mut nodes = Vec::new();
+        while !self.is_eof() && self.current() != ')' {
+            nodes.push(self.parse_node()?);
+        }
+
+        if self.is_eof() {
+            return Err(ParseError::UnclosedGroup);
+        }
+
+        self.advance(); // consume ')'
+        Ok(RegexNode::new_group(kind, nodes))
+    }
+
+    fn parse_group_name(&mut self) -> Result<String, ParseError> {
+        let mut name = String::new();
+        while !self.is_eof() && self.current() != '>' {
+            if self.current().is_alphanumeric() || self.current() == '_' {
+                name.push(self.current());
+                self.advance();
+            } else {
+                return Err(ParseError::InvalidGroupName);
+            }
+        }
+
+        if self.is_eof() || name.is_empty() {
+            return Err(ParseError::InvalidGroupName);
+        }
+
+        self.advance(); // consume '>'
+        Ok(name)
+    }
+
     fn parse_escape(&mut self) -> Result<RegexNode, ParseError> {
         if self.is_eof() {
             return Err(ParseError::UnexpectedEndOfInput);
@@ -201,11 +259,58 @@ impl Parser {
                 self.advance();
                 Ok(RegexNode::WordBoundary)
             }
+            'k' => {
+                self.advance();
+                if !self.check_char('<') {
+                    return Err(ParseError::InvalidBackreference);
+                }
+                self.advance();
+                let name = self.parse_group_name()?;
+                Ok(RegexNode::new_backreference(BackreferenceKind::NameBased(name)))
+            }
+            c if c.is_ascii_digit() => {
+                let num = self.parse_number()?;
+                if num == 0 || num > self.group_count {
+                    return Err(ParseError::InvalidBackreference);
+                }
+                Ok(RegexNode::new_backreference(BackreferenceKind::NumberBased(num)))
+            }
             c => {
                 self.advance();
                 Ok(RegexNode::new_literal(c))
             }
         }
+    }
+
+    fn parse_number(&mut self) -> Result<usize, ParseError> {
+        let mut num = 0;
+        while !self.is_eof() && self.current().is_ascii_digit() {
+            num = num * 10 + self.current().to_digit(10).unwrap() as usize;
+            self.advance();
+        }
+        Ok(num)
+    }
+
+    fn check_str(&mut self, s: &str) -> bool {
+        let chars: Vec<char> = s.chars().collect();
+        let mut pos = self.position;
+        
+        for &c in &chars {
+            if pos >= self.input.len() || self.input[pos] != c {
+                return false;
+            }
+            pos += 1;
+        }
+
+        // If we matched the string, advance the position
+        for _ in 0..chars.len() {
+            self.advance();
+        }
+        true
+    }
+
+    fn check_char(&self, c: char) -> bool {
+        !self.is_eof() && self.current() == c
     }
 
     fn current(&self) -> char {
