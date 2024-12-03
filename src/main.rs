@@ -25,6 +25,15 @@ fn main() {
         "(?<name>baz)",
         "(test)\\1",
         "(?<num>\\d+)\\k<num>",
+        "\\w+",
+        "\\d+",
+        "\\s*",
+        "\\p{L}+",
+        "\\P{N}*",
+        "\\n",
+        "\\t",
+        "\\x20",
+        "\\u{1F600}",
     ];
 
     for pattern in test_patterns {
@@ -40,7 +49,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ast::{AnchorType, BackreferenceKind, GroupKind, Quantifier, RegexNode};
+    use ast::{AnchorType, BackreferenceKind, CharacterTypeKind, EscapedChar, GroupKind, Quantifier, RegexNode, UnicodeCategoryKind};
 
     #[test]
     fn test_basic_parsing() {
@@ -276,6 +285,125 @@ mod tests {
                     RegexNode::new_literal('c'),
                 ]
             ).with_quantifier(Quantifier::OneOrMore { lazy: false })]
+        );
+    }
+
+    #[test]
+    fn test_character_types() {
+        let test_cases = vec![
+            (
+                "\\w",
+                vec![RegexNode::new_character_type(CharacterTypeKind::Word)]
+            ),
+            (
+                "\\W",
+                vec![RegexNode::new_character_type(CharacterTypeKind::NotWord)]
+            ),
+            (
+                "\\d",
+                vec![RegexNode::new_character_type(CharacterTypeKind::Digit)]
+            ),
+            (
+                "\\D",
+                vec![RegexNode::new_character_type(CharacterTypeKind::NotDigit)]
+            ),
+            (
+                "\\s",
+                vec![RegexNode::new_character_type(CharacterTypeKind::Whitespace)]
+            ),
+            (
+                "\\S",
+                vec![RegexNode::new_character_type(CharacterTypeKind::NotWhitespace)]
+            ),
+        ];
+
+        for (pattern, expected) in test_cases {
+            let mut parser = Parser::new(pattern);
+            let result = parser.parse().unwrap();
+            assert_eq!(result, expected);
+        }
+    }
+
+    #[test]
+    fn test_escaped_chars() {
+        let test_cases = vec![
+            (
+                "\\n",
+                vec![RegexNode::new_character_type(CharacterTypeKind::EscapedChar(
+                    EscapedChar::NewLine
+                ))]
+            ),
+            (
+                "\\t",
+                vec![RegexNode::new_character_type(CharacterTypeKind::EscapedChar(
+                    EscapedChar::Tab
+                ))]
+            ),
+            (
+                "\\r",
+                vec![RegexNode::new_character_type(CharacterTypeKind::EscapedChar(
+                    EscapedChar::CarriageReturn
+                ))]
+            ),
+            (
+                "\\x20",
+                vec![RegexNode::new_character_type(CharacterTypeKind::EscapedChar(
+                    EscapedChar::Hex(0x20)
+                ))]
+            ),
+            (
+                "\\u{1F600}",
+                vec![RegexNode::new_character_type(CharacterTypeKind::EscapedChar(
+                    EscapedChar::Unicode(0x1F600)
+                ))]
+            ),
+        ];
+
+        for (pattern, expected) in test_cases {
+            let mut parser = Parser::new(pattern);
+            let result = parser.parse().unwrap();
+            assert_eq!(result, expected);
+        }
+    }
+
+    #[test]
+    fn test_unicode_categories() {
+        let test_cases = vec![
+            (
+                "\\p{L}",
+                vec![RegexNode::new_unicode_category(UnicodeCategoryKind::Letter, false)]
+            ),
+            (
+                "\\P{N}",
+                vec![RegexNode::new_unicode_category(UnicodeCategoryKind::Number, true)]
+            ),
+            (
+                "\\p{P}",
+                vec![RegexNode::new_unicode_category(UnicodeCategoryKind::Punctuation, false)]
+            ),
+        ];
+
+        for (pattern, expected) in test_cases {
+            let mut parser = Parser::new(pattern);
+            let result = parser.parse().unwrap();
+            assert_eq!(result, expected);
+        }
+    }
+
+    #[test]
+    fn test_combined_patterns() {
+        let mut parser = Parser::new("\\w+\\s*\\p{L}+");
+        let result = parser.parse().unwrap();
+        assert_eq!(
+            result,
+            vec![
+                RegexNode::new_character_type(CharacterTypeKind::Word)
+                    .with_quantifier(Quantifier::OneOrMore { lazy: false }),
+                RegexNode::new_character_type(CharacterTypeKind::Whitespace)
+                    .with_quantifier(Quantifier::ZeroOrMore { lazy: false }),
+                RegexNode::new_unicode_category(UnicodeCategoryKind::Letter, false)
+                    .with_quantifier(Quantifier::OneOrMore { lazy: false }),
+            ]
         );
     }
 }

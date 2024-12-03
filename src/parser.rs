@@ -1,4 +1,7 @@
-use crate::ast::{AnchorType, BackreferenceKind, GroupKind, Quantifier, RegexNode};
+use crate::ast::{
+    AnchorType, BackreferenceKind, CharacterTypeKind, EscapedChar, GroupKind, Quantifier,
+    RegexNode, UnicodeCategoryKind,
+};
 
 pub struct Parser {
     input: Vec<char>,
@@ -17,6 +20,9 @@ pub enum ParseError {
     InvalidGroupSyntax,
     InvalidBackreference,
     InvalidGroupName,
+    InvalidUnicodeCategory,
+    InvalidHexNumber,
+    InvalidUnicodeValue,
 }
 
 impl Parser {
@@ -268,6 +274,93 @@ impl Parser {
                 let name = self.parse_group_name()?;
                 Ok(RegexNode::new_backreference(BackreferenceKind::NameBased(name)))
             }
+            'w' => {
+                self.advance();
+                Ok(RegexNode::new_character_type(CharacterTypeKind::Word))
+            }
+            'W' => {
+                self.advance();
+                Ok(RegexNode::new_character_type(CharacterTypeKind::NotWord))
+            }
+            'd' => {
+                self.advance();
+                Ok(RegexNode::new_character_type(CharacterTypeKind::Digit))
+            }
+            'D' => {
+                self.advance();
+                Ok(RegexNode::new_character_type(CharacterTypeKind::NotDigit))
+            }
+            's' => {
+                self.advance();
+                Ok(RegexNode::new_character_type(CharacterTypeKind::Whitespace))
+            }
+            'S' => {
+                self.advance();
+                Ok(RegexNode::new_character_type(CharacterTypeKind::NotWhitespace))
+            }
+            'p' | 'P' => {
+                let negated = self.current() == 'P';
+                self.advance();
+                self.parse_unicode_category(negated)
+            }
+            'n' => {
+                self.advance();
+                Ok(RegexNode::new_character_type(CharacterTypeKind::EscapedChar(
+                    EscapedChar::NewLine,
+                )))
+            }
+            't' => {
+                self.advance();
+                Ok(RegexNode::new_character_type(CharacterTypeKind::EscapedChar(
+                    EscapedChar::Tab,
+                )))
+            }
+            'r' => {
+                self.advance();
+                Ok(RegexNode::new_character_type(CharacterTypeKind::EscapedChar(
+                    EscapedChar::CarriageReturn,
+                )))
+            }
+            'f' => {
+                self.advance();
+                Ok(RegexNode::new_character_type(CharacterTypeKind::EscapedChar(
+                    EscapedChar::FormFeed,
+                )))
+            }
+            'v' => {
+                self.advance();
+                Ok(RegexNode::new_character_type(CharacterTypeKind::EscapedChar(
+                    EscapedChar::VerticalTab,
+                )))
+            }
+            '0' => {
+                self.advance();
+                Ok(RegexNode::new_character_type(CharacterTypeKind::EscapedChar(
+                    EscapedChar::Null,
+                )))
+            }
+            'x' => {
+                self.advance();
+                let hex_value = self.parse_hex(2)?;
+                Ok(RegexNode::new_character_type(CharacterTypeKind::EscapedChar(
+                    EscapedChar::Hex(hex_value),
+                )))
+            }
+            'u' => {
+                self.advance();
+                if !self.check_char('{') {
+                    return Err(ParseError::InvalidUnicodeValue);
+                }
+                self.advance();
+                let hex_value = self.parse_unicode_value()?;
+                if !self.check_char('}') {
+                    return Err(ParseError::InvalidUnicodeValue);
+                }
+                self.advance();
+                Ok(RegexNode::new_character_type(CharacterTypeKind::EscapedChar(
+                    EscapedChar::Unicode(hex_value),
+                )))
+            }
             c if c.is_ascii_digit() => {
                 let num = self.parse_number()?;
                 if num == 0 || num > self.group_count {
@@ -280,6 +373,62 @@ impl Parser {
                 Ok(RegexNode::new_literal(c))
             }
         }
+    }
+
+    fn parse_unicode_category(&mut self, negated: bool) -> Result<RegexNode, ParseError> {
+        if !self.check_char('{') {
+            return Err(ParseError::InvalidUnicodeCategory);
+        }
+        self.advance();
+
+        let category = match self.current() {
+            'L' => UnicodeCategoryKind::Letter,
+            'N' => UnicodeCategoryKind::Number,
+            'P' => UnicodeCategoryKind::Punctuation,
+            'S' => UnicodeCategoryKind::Symbol,
+            'M' => UnicodeCategoryKind::Mark,
+            'Z' => UnicodeCategoryKind::Separator,
+            'C' => UnicodeCategoryKind::Other,
+            _ => return Err(ParseError::InvalidUnicodeCategory),
+        };
+        self.advance();
+
+        if !self.check_char('}') {
+            return Err(ParseError::InvalidUnicodeCategory);
+        }
+        self.advance();
+
+        Ok(RegexNode::new_unicode_category(category, negated))
+    }
+
+    fn parse_hex(&mut self, count: usize) -> Result<u32, ParseError> {
+        let mut value = 0;
+        for _ in 0..count {
+            if self.is_eof() {
+                return Err(ParseError::InvalidHexNumber);
+            }
+            let digit = self.current().to_digit(16)
+                .ok_or(ParseError::InvalidHexNumber)?;
+            value = value * 16 + digit;
+            self.advance();
+        }
+        Ok(value)
+    }
+
+    fn parse_unicode_value(&mut self) -> Result<u32, ParseError> {
+        let mut value = 0;
+        let mut count = 0;
+        while !self.is_eof() && self.current() != '}' && count < 6 {
+            let digit = self.current().to_digit(16)
+                .ok_or(ParseError::InvalidUnicodeValue)?;
+            value = value * 16 + digit;
+            self.advance();
+            count += 1;
+        }
+        if count == 0 {
+            return Err(ParseError::InvalidUnicodeValue);
+        }
+        Ok(value)
     }
 
     fn parse_number(&mut self) -> Result<usize, ParseError> {

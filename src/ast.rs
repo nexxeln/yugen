@@ -14,6 +14,46 @@ pub enum RegexNode {
     },
     Group(GroupKind, Vec<RegexNode>),
     Backreference(BackreferenceKind),
+    CharacterType(CharacterTypeKind),
+    UnicodeCategory {
+        negated: bool,
+        category: UnicodeCategoryKind,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CharacterTypeKind {
+    Word,           // \w
+    NotWord,        // \W
+    Digit,          // \d
+    NotDigit,       // \D
+    Whitespace,     // \s
+    NotWhitespace,  // \S
+    EscapedChar(EscapedChar),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EscapedChar {
+    Tab,            // \t
+    NewLine,        // \n
+    CarriageReturn, // \r
+    FormFeed,       // \f
+    VerticalTab,    // \v
+    Null,           // \0
+    Hex(u32),      // \xHH
+    Unicode(u32),   // \u{H...}
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum UnicodeCategoryKind {
+    Letter,              // \p{L}
+    Number,              // \p{N}
+    Punctuation,         // \p{P}
+    Symbol,              // \p{S}
+    Mark,                // \p{M}
+    Separator,           // \p{Z}
+    Other,               // \p{C}
+    // Add more categories as needed
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -70,5 +110,13 @@ impl RegexNode {
 
     pub fn new_backreference(kind: BackreferenceKind) -> Self {
         RegexNode::Backreference(kind)
+    }
+
+    pub fn new_character_type(kind: CharacterTypeKind) -> Self {
+        RegexNode::CharacterType(kind)
+    }
+
+    pub fn new_unicode_category(category: UnicodeCategoryKind, negated: bool) -> Self {
+        RegexNode::UnicodeCategory { category, negated }
     }
 } 
