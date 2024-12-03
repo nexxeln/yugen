@@ -39,6 +39,13 @@ fn main() {
         "(cat|dog)+",
         "a(b|c)d",
         "\\w+|\\d+",
+        "(?=foo)bar",
+        "(?!foo)bar",
+        "(?<=foo)bar",
+        "(?<!foo)bar",
+        "\\w+(?=\\d)",
+        "(?<!\\s)\\w+",
+        "foo(?!bar|baz)",
     ];
 
     for pattern in test_patterns {
@@ -54,7 +61,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ast::{AnchorType, BackreferenceKind, CharacterTypeKind, EscapedChar, GroupKind, Quantifier, RegexNode, UnicodeCategoryKind};
+    use ast::{AnchorType, BackreferenceKind, CharacterTypeKind, EscapedChar, GroupKind, LookaroundKind, Quantifier, RegexNode, UnicodeCategoryKind};
 
     #[test]
     fn test_basic_parsing() {
@@ -547,5 +554,139 @@ mod tests {
     fn test_empty_alternation() {
         let mut parser = Parser::new("a||b");
         parser.parse().unwrap();
+    }
+
+    #[test]
+    fn test_positive_lookahead() {
+        let mut parser = Parser::new("(?=foo)bar");
+        let result = parser.parse().unwrap();
+        assert_eq!(
+            result,
+            vec![
+                RegexNode::new_lookaround(
+                    LookaroundKind::PositiveLookahead,
+                    vec![
+                        RegexNode::new_literal('f'),
+                        RegexNode::new_literal('o'),
+                        RegexNode::new_literal('o'),
+                    ],
+                ),
+                RegexNode::new_literal('b'),
+                RegexNode::new_literal('a'),
+                RegexNode::new_literal('r'),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_negative_lookahead() {
+        let mut parser = Parser::new("(?!foo)bar");
+        let result = parser.parse().unwrap();
+        assert_eq!(
+            result,
+            vec![
+                RegexNode::new_lookaround(
+                    LookaroundKind::NegativeLookahead,
+                    vec![
+                        RegexNode::new_literal('f'),
+                        RegexNode::new_literal('o'),
+                        RegexNode::new_literal('o'),
+                    ],
+                ),
+                RegexNode::new_literal('b'),
+                RegexNode::new_literal('a'),
+                RegexNode::new_literal('r'),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_positive_lookbehind() {
+        let mut parser = Parser::new("(?<=foo)bar");
+        let result = parser.parse().unwrap();
+        assert_eq!(
+            result,
+            vec![
+                RegexNode::new_lookaround(
+                    LookaroundKind::PositiveLookbehind,
+                    vec![
+                        RegexNode::new_literal('f'),
+                        RegexNode::new_literal('o'),
+                        RegexNode::new_literal('o'),
+                    ],
+                ),
+                RegexNode::new_literal('b'),
+                RegexNode::new_literal('a'),
+                RegexNode::new_literal('r'),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_negative_lookbehind() {
+        let mut parser = Parser::new("(?<!foo)bar");
+        let result = parser.parse().unwrap();
+        assert_eq!(
+            result,
+            vec![
+                RegexNode::new_lookaround(
+                    LookaroundKind::NegativeLookbehind,
+                    vec![
+                        RegexNode::new_literal('f'),
+                        RegexNode::new_literal('o'),
+                        RegexNode::new_literal('o'),
+                    ],
+                ),
+                RegexNode::new_literal('b'),
+                RegexNode::new_literal('a'),
+                RegexNode::new_literal('r'),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lookaround_with_alternation() {
+        let mut parser = Parser::new("foo(?!bar|baz)");
+        let result = parser.parse().unwrap();
+        assert_eq!(
+            result,
+            vec![
+                RegexNode::new_literal('f'),
+                RegexNode::new_literal('o'),
+                RegexNode::new_literal('o'),
+                RegexNode::new_lookaround(
+                    LookaroundKind::NegativeLookahead,
+                    vec![RegexNode::new_alternation(vec![
+                        vec![
+                            RegexNode::new_literal('b'),
+                            RegexNode::new_literal('a'),
+                            RegexNode::new_literal('r'),
+                        ],
+                        vec![
+                            RegexNode::new_literal('b'),
+                            RegexNode::new_literal('a'),
+                            RegexNode::new_literal('z'),
+                        ],
+                    ])],
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lookaround_with_character_types() {
+        let mut parser = Parser::new("\\w+(?=\\d)");
+        let result = parser.parse().unwrap();
+        assert_eq!(
+            result,
+            vec![
+                RegexNode::new_character_type(CharacterTypeKind::Word)
+                    .with_quantifier(Quantifier::OneOrMore { lazy: false }),
+                RegexNode::new_lookaround(
+                    LookaroundKind::PositiveLookahead,
+                    vec![RegexNode::new_character_type(CharacterTypeKind::Digit)],
+                ),
+            ]
+        );
     }
 }

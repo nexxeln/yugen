@@ -1,6 +1,6 @@
 use crate::ast::{
-    AnchorType, BackreferenceKind, CharacterTypeKind, EscapedChar, GroupKind, Quantifier,
-    RegexNode, UnicodeCategoryKind,
+    AnchorType, BackreferenceKind, CharacterTypeKind, EscapedChar, GroupKind, LookaroundKind,
+    Quantifier, RegexNode, UnicodeCategoryKind,
 };
 
 pub struct Parser {
@@ -24,6 +24,7 @@ pub enum ParseError {
     InvalidHexNumber,
     InvalidUnicodeValue,
     EmptyAlternation,
+    InvalidLookaround,
 }
 
 impl Parser {
@@ -238,31 +239,77 @@ impl Parser {
     fn parse_group(&mut self) -> Result<RegexNode, ParseError> {
         self.advance(); // consume '('
         
-        let kind = if self.check_str("?:") {
-            GroupKind::NonCapturing
-        } else if self.check_char('?') {
+        if self.check_char('?') {
             self.advance();
-            if self.check_char('<') {
-                self.advance();
-                let name = self.parse_group_name()?;
-                GroupKind::Capturing(Some(name))
-            } else {
-                return Err(ParseError::InvalidGroupSyntax);
+            match self.current() {
+                ':' => {
+                    self.advance();
+                    let nodes = self.parse_alternation()?;
+                    if self.is_eof() || self.current() != ')' {
+                        return Err(ParseError::UnclosedGroup);
+                    }
+                    self.advance();
+                    Ok(RegexNode::new_group(GroupKind::NonCapturing, nodes))
+                }
+                '<' => {
+                    self.advance();
+                    if self.check_char('=') || self.check_char('!') {
+                        // Lookbehind
+                        let negative = self.current() == '!';
+                        self.advance();
+                        let nodes = self.parse_alternation()?;
+                        if self.is_eof() || self.current() != ')' {
+                            return Err(ParseError::UnclosedGroup);
+                        }
+                        self.advance();
+                        Ok(RegexNode::new_lookaround(
+                            if negative {
+                                LookaroundKind::NegativeLookbehind
+                            } else {
+                                LookaroundKind::PositiveLookbehind
+                            },
+                            nodes,
+                        ))
+                    } else {
+                        // Named capturing group
+                        let name = self.parse_group_name()?;
+                        let nodes = self.parse_alternation()?;
+                        if self.is_eof() || self.current() != ')' {
+                            return Err(ParseError::UnclosedGroup);
+                        }
+                        self.advance();
+                        Ok(RegexNode::new_group(GroupKind::Capturing(Some(name)), nodes))
+                    }
+                }
+                '=' | '!' => {
+                    // Lookahead
+                    let negative = self.current() == '!';
+                    self.advance();
+                    let nodes = self.parse_alternation()?;
+                    if self.is_eof() || self.current() != ')' {
+                        return Err(ParseError::UnclosedGroup);
+                    }
+                    self.advance();
+                    Ok(RegexNode::new_lookaround(
+                        if negative {
+                            LookaroundKind::NegativeLookahead
+                        } else {
+                            LookaroundKind::PositiveLookahead
+                        },
+                        nodes,
+                    ))
+                }
+                _ => Err(ParseError::InvalidGroupSyntax),
             }
         } else {
             self.group_count += 1;
-            GroupKind::Capturing(None)
-        };
-
-        // Parse the contents of the group, which might include alternation
-        let nodes = self.parse_alternation()?;
-
-        if self.is_eof() || self.current() != ')' {
-            return Err(ParseError::UnclosedGroup);
+            let nodes = self.parse_alternation()?;
+            if self.is_eof() || self.current() != ')' {
+                return Err(ParseError::UnclosedGroup);
+            }
+            self.advance();
+            Ok(RegexNode::new_group(GroupKind::Capturing(None), nodes))
         }
-        self.advance(); // consume ')'
-
-        Ok(RegexNode::new_group(kind, nodes))
     }
 
     fn parse_group_name(&mut self) -> Result<String, ParseError> {

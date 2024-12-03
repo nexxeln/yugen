@@ -20,6 +20,7 @@ pub enum RegexNode {
         category: UnicodeCategoryKind,
     },
     Alternation(Vec<Vec<RegexNode>>),
+    Lookaround(LookaroundKind, Box<Vec<RegexNode>>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -85,6 +86,14 @@ pub enum Quantifier {
     Range { min: usize, max: usize }, // {n,m}
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum LookaroundKind {
+    PositiveLookahead,  // (?=...)
+    NegativeLookahead,  // (?!...)
+    PositiveLookbehind, // (?<=...)
+    NegativeLookbehind, // (?<!...)
+}
+
 impl RegexNode {
     pub fn new_literal(c: char) -> Self {
         RegexNode::Literal(c)
@@ -123,5 +132,9 @@ impl RegexNode {
 
     pub fn new_alternation(alternatives: Vec<Vec<RegexNode>>) -> Self {
         RegexNode::Alternation(alternatives)
+    }
+
+    pub fn new_lookaround(kind: LookaroundKind, nodes: Vec<RegexNode>) -> Self {
+        RegexNode::Lookaround(kind, Box::new(nodes))
     }
 } 
