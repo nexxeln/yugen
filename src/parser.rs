@@ -1,4 +1,4 @@
-use crate::ast::{AnchorType, RegexNode};
+use crate::ast::{AnchorType, Quantifier, RegexNode};
 
 pub struct Parser {
     input: Vec<char>,
@@ -10,6 +10,8 @@ pub enum ParseError {
     UnexpectedEndOfInput,
     UnexpectedCharacter(char),
     UnclosedCharacterClass,
+    InvalidQuantifier,
+    InvalidNumber,
 }
 
 impl Parser {
@@ -33,28 +35,127 @@ impl Parser {
             return Err(ParseError::UnexpectedEndOfInput);
         }
 
-        match self.current() {
+        let node = match self.current() {
             '.' => {
                 self.advance();
-                Ok(RegexNode::Dot)
+                RegexNode::Dot
             }
             '^' => {
                 self.advance();
-                Ok(RegexNode::new_anchor(AnchorType::Start))
+                RegexNode::new_anchor(AnchorType::Start)
             }
             '$' => {
                 self.advance();
-                Ok(RegexNode::new_anchor(AnchorType::End))
+                RegexNode::new_anchor(AnchorType::End)
             }
             '\\' => {
                 self.advance();
-                self.parse_escape()
+                self.parse_escape()?
             }
-            '[' => self.parse_character_class(),
+            '[' => self.parse_character_class()?,
             c => {
                 self.advance();
-                Ok(RegexNode::new_literal(c))
+                RegexNode::new_literal(c)
             }
+        };
+
+        if !self.is_eof() {
+            if let Some(quantifier) = self.try_parse_quantifier()? {
+                return Ok(node.with_quantifier(quantifier));
+            }
+        }
+
+        Ok(node)
+    }
+
+    fn try_parse_quantifier(&mut self) -> Result<Option<Quantifier>, ParseError> {
+        if self.is_eof() {
+            return Ok(None);
+        }
+
+        let quantifier = match self.current() {
+            '*' => {
+                self.advance();
+                let lazy = self.check_lazy();
+                Some(Quantifier::ZeroOrMore { lazy })
+            }
+            '+' => {
+                self.advance();
+                let lazy = self.check_lazy();
+                Some(Quantifier::OneOrMore { lazy })
+            }
+            '?' => {
+                self.advance();
+                let lazy = self.check_lazy();
+                Some(Quantifier::ZeroOrOne { lazy })
+            }
+            '{' => {
+                self.advance();
+                Some(self.parse_curly_quantifier()?)
+            }
+            _ => None,
+        };
+
+        Ok(quantifier)
+    }
+
+    fn check_lazy(&mut self) -> bool {
+        if !self.is_eof() && self.current() == '?' {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn parse_curly_quantifier(&mut self) -> Result<Quantifier, ParseError> {
+        let mut num_str = String::new();
+        
+        while !self.is_eof() && self.current().is_ascii_digit() {
+            num_str.push(self.current());
+            self.advance();
+        }
+        
+        let n = num_str.parse::<usize>()
+            .map_err(|_| ParseError::InvalidNumber)?;
+
+        if self.is_eof() {
+            return Err(ParseError::UnexpectedEndOfInput);
+        }
+
+        match self.current() {
+            '}' => {
+                self.advance();
+                Ok(Quantifier::Exactly(n))
+            }
+            ',' => {
+                self.advance();
+                if self.is_eof() {
+                    return Err(ParseError::UnexpectedEndOfInput);
+                }
+
+                if self.current() == '}' {
+                    self.advance();
+                    Ok(Quantifier::AtLeast(n))
+                } else {
+                    let mut max_str = String::new();
+                    while !self.is_eof() && self.current().is_ascii_digit() {
+                        max_str.push(self.current());
+                        self.advance();
+                    }
+
+                    if self.is_eof() || self.current() != '}' {
+                        return Err(ParseError::InvalidQuantifier);
+                    }
+                    self.advance();
+
+                    let max = max_str.parse::<usize>()
+                        .map_err(|_| ParseError::InvalidNumber)?;
+                    
+                    Ok(Quantifier::Range { min: n, max })
+                }
+            }
+            _ => Err(ParseError::InvalidQuantifier),
         }
     }
 

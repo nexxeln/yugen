@@ -8,12 +8,26 @@ pub enum RegexNode {
     Dot,
     Anchor(AnchorType),
     WordBoundary,
+    Quantified {
+        node: Box<RegexNode>,
+        quantifier: Quantifier,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AnchorType {
     Start, // ^
     End,   // $
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Quantifier {
+    ZeroOrMore { lazy: bool },     // * or *?
+    OneOrMore { lazy: bool },      // + or +?
+    ZeroOrOne { lazy: bool },      // ? or ??
+    Exactly(usize),                // {n}
+    AtLeast(usize),                // {n,}
+    Range { min: usize, max: usize }, // {n,m}
 }
 
 impl RegexNode {
@@ -27,5 +41,12 @@ impl RegexNode {
 
     pub fn new_anchor(anchor_type: AnchorType) -> Self {
         RegexNode::Anchor(anchor_type)
+    }
+
+    pub fn with_quantifier(self, quantifier: Quantifier) -> Self {
+        RegexNode::Quantified {
+            node: Box::new(self),
+            quantifier,
+        }
     }
 } 
