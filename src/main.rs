@@ -46,6 +46,13 @@ fn main() {
         "\\w+(?=\\d)",
         "(?<!\\s)\\w+",
         "foo(?!bar|baz)",
+        "(?i)abc",
+        "(?m)^abc$",
+        "(?s)a.c",
+        "(?i:foo)bar",
+        "(?im)abc",
+        "(?i)foo(?-i)bar",
+        "a(?i)b(?-i)c",
     ];
 
     for pattern in test_patterns {
@@ -61,7 +68,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ast::{AnchorType, BackreferenceKind, CharacterTypeKind, EscapedChar, GroupKind, LookaroundKind, Quantifier, RegexNode, UnicodeCategoryKind};
+    use ast::{AnchorType, BackreferenceKind, CharacterTypeKind, EscapedChar, GroupKind, LookaroundKind, Quantifier, RegexNode, UnicodeCategoryKind, RegexFlags};
 
     #[test]
     fn test_basic_parsing() {
@@ -686,6 +693,140 @@ mod tests {
                     LookaroundKind::PositiveLookahead,
                     vec![RegexNode::new_character_type(CharacterTypeKind::Digit)],
                 ),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_basic_flag() {
+        let mut parser = Parser::new("(?i)abc");
+        let result = parser.parse().unwrap();
+        let mut flags = RegexFlags::new();
+        flags.case_insensitive = true;
+        assert_eq!(
+            result,
+            vec![RegexNode::new_flag_set(
+                flags,
+                vec![
+                    RegexNode::new_literal('a'),
+                    RegexNode::new_literal('b'),
+                    RegexNode::new_literal('c'),
+                ],
+            )]
+        );
+    }
+
+    #[test]
+    fn test_multiple_flags() {
+        let mut parser = Parser::new("(?im)abc");
+        let result = parser.parse().unwrap();
+        let mut flags = RegexFlags::new();
+        flags.case_insensitive = true;
+        flags.multiline = true;
+        assert_eq!(
+            result,
+            vec![RegexNode::new_flag_set(
+                flags,
+                vec![
+                    RegexNode::new_literal('a'),
+                    RegexNode::new_literal('b'),
+                    RegexNode::new_literal('c'),
+                ],
+            )]
+        );
+    }
+
+    #[test]
+    fn test_scoped_flags() {
+        let mut parser = Parser::new("(?i:foo)bar");
+        let result = parser.parse().unwrap();
+        let mut flags = RegexFlags::new();
+        flags.case_insensitive = true;
+        assert_eq!(
+            result,
+            vec![
+                RegexNode::new_flag_set(
+                    flags,
+                    vec![
+                        RegexNode::new_literal('f'),
+                        RegexNode::new_literal('o'),
+                        RegexNode::new_literal('o'),
+                    ],
+                ),
+                RegexNode::new_literal('b'),
+                RegexNode::new_literal('a'),
+                RegexNode::new_literal('r'),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_flag_with_anchors() {
+        let mut parser = Parser::new("(?m)^abc$");
+        let result = parser.parse().unwrap();
+        let mut flags = RegexFlags::new();
+        flags.multiline = true;
+        assert_eq!(
+            result,
+            vec![RegexNode::new_flag_set(
+                flags,
+                vec![
+                    RegexNode::new_anchor(AnchorType::Start),
+                    RegexNode::new_literal('a'),
+                    RegexNode::new_literal('b'),
+                    RegexNode::new_literal('c'),
+                    RegexNode::new_anchor(AnchorType::End),
+                ],
+            )]
+        );
+    }
+
+    #[test]
+    fn test_flag_with_dot() {
+        let mut parser = Parser::new("(?s)a.c");
+        let result = parser.parse().unwrap();
+        let mut flags = RegexFlags::new();
+        flags.dot_all = true;
+        assert_eq!(
+            result,
+            vec![RegexNode::new_flag_set(
+                flags,
+                vec![
+                    RegexNode::new_literal('a'),
+                    RegexNode::Dot,
+                    RegexNode::new_literal('c'),
+                ],
+            )]
+        );
+    }
+
+    #[test]
+    fn test_flag_with_alternation() {
+        let mut parser = Parser::new("(?i:foo|bar)baz");
+        let result = parser.parse().unwrap();
+        let mut flags = RegexFlags::new();
+        flags.case_insensitive = true;
+        assert_eq!(
+            result,
+            vec![
+                RegexNode::new_flag_set(
+                    flags,
+                    vec![RegexNode::new_alternation(vec![
+                        vec![
+                            RegexNode::new_literal('f'),
+                            RegexNode::new_literal('o'),
+                            RegexNode::new_literal('o'),
+                        ],
+                        vec![
+                            RegexNode::new_literal('b'),
+                            RegexNode::new_literal('a'),
+                            RegexNode::new_literal('r'),
+                        ],
+                    ])],
+                ),
+                RegexNode::new_literal('b'),
+                RegexNode::new_literal('a'),
+                RegexNode::new_literal('z'),
             ]
         );
     }

@@ -1,12 +1,13 @@
 use crate::ast::{
     AnchorType, BackreferenceKind, CharacterTypeKind, EscapedChar, GroupKind, LookaroundKind,
-    Quantifier, RegexNode, UnicodeCategoryKind,
+    Quantifier, RegexNode, UnicodeCategoryKind, RegexFlags,
 };
 
 pub struct Parser {
     input: Vec<char>,
     position: usize,
     group_count: usize,
+    current_flags: RegexFlags,
 }
 
 #[derive(Debug)]
@@ -25,6 +26,7 @@ pub enum ParseError {
     InvalidUnicodeValue,
     EmptyAlternation,
     InvalidLookaround,
+    InvalidFlag,
 }
 
 impl Parser {
@@ -33,6 +35,7 @@ impl Parser {
             input: input.chars().collect(),
             position: 0,
             group_count: 0,
+            current_flags: RegexFlags::new(),
         }
     }
 
@@ -298,6 +301,47 @@ impl Parser {
                         },
                         nodes,
                     ))
+                }
+                'i' | 'm' | 's' => {
+                    // Flag setting
+                    let mut new_flags = RegexFlags::new();
+                    while !self.is_eof() && self.current() != ')' && self.current() != ':' {
+                        if let Some(flag) = RegexFlags::from_char(self.current()) {
+                            new_flags = new_flags.merge(&flag);
+                            self.advance();
+                        } else {
+                            return Err(ParseError::InvalidFlag);
+                        }
+                    }
+
+                    let old_flags = self.current_flags.clone();
+                    self.current_flags = self.current_flags.merge(&new_flags);
+
+                    let has_colon = self.check_char(':');
+                    if has_colon {
+                        self.advance();
+                    }
+
+                    let nodes = if has_colon {
+                        // For scoped flags, parse until closing parenthesis
+                        let nodes = self.parse_alternation()?;
+                        if self.is_eof() || self.current() != ')' {
+                            return Err(ParseError::UnclosedGroup);
+                        }
+                        self.advance();
+                        self.current_flags = old_flags; // Restore old flags
+                        nodes
+                    } else {
+                        // For unscoped flags, parse until closing parenthesis and then continue
+                        if self.is_eof() || self.current() != ')' {
+                            return Err(ParseError::UnclosedGroup);
+                        }
+                        self.advance();
+                        // Parse the rest of the pattern under these flags
+                        self.parse_alternation()?
+                    };
+
+                    Ok(RegexNode::new_flag_set(new_flags, nodes))
                 }
                 _ => Err(ParseError::InvalidGroupSyntax),
             }

@@ -21,6 +21,14 @@ pub enum RegexNode {
     },
     Alternation(Vec<Vec<RegexNode>>),
     Lookaround(LookaroundKind, Box<Vec<RegexNode>>),
+    FlagSet(RegexFlags, Box<Vec<RegexNode>>),
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct RegexFlags {
+    pub case_insensitive: bool,
+    pub multiline: bool,
+    pub dot_all: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -136,5 +144,34 @@ impl RegexNode {
 
     pub fn new_lookaround(kind: LookaroundKind, nodes: Vec<RegexNode>) -> Self {
         RegexNode::Lookaround(kind, Box::new(nodes))
+    }
+
+    pub fn new_flag_set(flags: RegexFlags, nodes: Vec<RegexNode>) -> Self {
+        RegexNode::FlagSet(flags, Box::new(nodes))
+    }
+}
+
+impl RegexFlags {
+    pub fn new() -> Self {
+        RegexFlags::default()
+    }
+
+    pub fn from_char(c: char) -> Option<RegexFlags> {
+        let mut flags = RegexFlags::new();
+        match c {
+            'i' => flags.case_insensitive = true,
+            'm' => flags.multiline = true,
+            's' => flags.dot_all = true,
+            _ => return None,
+        }
+        Some(flags)
+    }
+
+    pub fn merge(&self, other: &RegexFlags) -> RegexFlags {
+        RegexFlags {
+            case_insensitive: self.case_insensitive || other.case_insensitive,
+            multiline: self.multiline || other.multiline,
+            dot_all: self.dot_all || other.dot_all,
+        }
     }
 } 
