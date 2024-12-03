@@ -23,6 +23,7 @@ pub enum ParseError {
     InvalidUnicodeCategory,
     InvalidHexNumber,
     InvalidUnicodeValue,
+    EmptyAlternation,
 }
 
 impl Parser {
@@ -35,11 +36,41 @@ impl Parser {
     }
 
     pub fn parse(&mut self) -> Result<Vec<RegexNode>, ParseError> {
-        let mut nodes = Vec::new();
+        self.parse_alternation()
+    }
+
+    fn parse_alternation(&mut self) -> Result<Vec<RegexNode>, ParseError> {
+        let mut alternatives = vec![Vec::new()];
+        
         while !self.is_eof() {
-            nodes.push(self.parse_node()?);
+            if self.current() == '|' {
+                self.advance();
+                alternatives.push(Vec::new());
+                continue;
+            }
+
+            // Stop parsing alternation when we hit a closing parenthesis
+            if self.current() == ')' {
+                break;
+            }
+
+            let node = self.parse_node()?;
+            if let Some(current_alt) = alternatives.last_mut() {
+                current_alt.push(node);
+            }
         }
-        Ok(nodes)
+
+        // If we have multiple alternatives, wrap them in an Alternation node
+        if alternatives.len() > 1 {
+            // Check for empty alternatives
+            if alternatives.iter().any(|alt| alt.is_empty()) {
+                return Err(ParseError::EmptyAlternation);
+            }
+            Ok(vec![RegexNode::new_alternation(alternatives)])
+        } else {
+            // If we only have one alternative, return it directly
+            Ok(alternatives.into_iter().next().unwrap())
+        }
     }
 
     fn parse_node(&mut self) -> Result<RegexNode, ParseError> {
@@ -223,16 +254,14 @@ impl Parser {
             GroupKind::Capturing(None)
         };
 
-        let mut nodes = Vec::new();
-        while !self.is_eof() && self.current() != ')' {
-            nodes.push(self.parse_node()?);
-        }
+        // Parse the contents of the group, which might include alternation
+        let nodes = self.parse_alternation()?;
 
-        if self.is_eof() {
+        if self.is_eof() || self.current() != ')' {
             return Err(ParseError::UnclosedGroup);
         }
-
         self.advance(); // consume ')'
+
         Ok(RegexNode::new_group(kind, nodes))
     }
 

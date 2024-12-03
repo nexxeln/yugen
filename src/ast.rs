@@ -19,6 +19,7 @@ pub enum RegexNode {
         negated: bool,
         category: UnicodeCategoryKind,
     },
+    Alternation(Vec<Vec<RegexNode>>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -118,5 +119,9 @@ impl RegexNode {
 
     pub fn new_unicode_category(category: UnicodeCategoryKind, negated: bool) -> Self {
         RegexNode::UnicodeCategory { category, negated }
+    }
+
+    pub fn new_alternation(alternatives: Vec<Vec<RegexNode>>) -> Self {
+        RegexNode::Alternation(alternatives)
     }
 } 

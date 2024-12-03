@@ -34,6 +34,11 @@ fn main() {
         "\\t",
         "\\x20",
         "\\u{1F600}",
+        "cat|dog",
+        "foo|bar|baz",
+        "(cat|dog)+",
+        "a(b|c)d",
+        "\\w+|\\d+",
     ];
 
     for pattern in test_patterns {
@@ -405,5 +410,142 @@ mod tests {
                     .with_quantifier(Quantifier::OneOrMore { lazy: false }),
             ]
         );
+    }
+
+    #[test]
+    fn test_basic_alternation() {
+        let mut parser = Parser::new("cat|dog");
+        let result = parser.parse().unwrap();
+        assert_eq!(
+            result,
+            vec![RegexNode::new_alternation(vec![
+                vec![
+                    RegexNode::new_literal('c'),
+                    RegexNode::new_literal('a'),
+                    RegexNode::new_literal('t'),
+                ],
+                vec![
+                    RegexNode::new_literal('d'),
+                    RegexNode::new_literal('o'),
+                    RegexNode::new_literal('g'),
+                ],
+            ])]
+        );
+    }
+
+    #[test]
+    fn test_multiple_alternation() {
+        let mut parser = Parser::new("foo|bar|baz");
+        let result = parser.parse().unwrap();
+        assert_eq!(
+            result,
+            vec![RegexNode::new_alternation(vec![
+                vec![
+                    RegexNode::new_literal('f'),
+                    RegexNode::new_literal('o'),
+                    RegexNode::new_literal('o'),
+                ],
+                vec![
+                    RegexNode::new_literal('b'),
+                    RegexNode::new_literal('a'),
+                    RegexNode::new_literal('r'),
+                ],
+                vec![
+                    RegexNode::new_literal('b'),
+                    RegexNode::new_literal('a'),
+                    RegexNode::new_literal('z'),
+                ],
+            ])]
+        );
+    }
+
+    #[test]
+    fn test_alternation_in_group() {
+        let mut parser = Parser::new("(cat|dog)");
+        let result = parser.parse().unwrap();
+        assert_eq!(
+            result,
+            vec![RegexNode::new_group(
+                GroupKind::Capturing(None),
+                vec![RegexNode::new_alternation(vec![
+                    vec![
+                        RegexNode::new_literal('c'),
+                        RegexNode::new_literal('a'),
+                        RegexNode::new_literal('t'),
+                    ],
+                    vec![
+                        RegexNode::new_literal('d'),
+                        RegexNode::new_literal('o'),
+                        RegexNode::new_literal('g'),
+                    ],
+                ])],
+            )]
+        );
+    }
+
+    #[test]
+    fn test_alternation_with_quantifier() {
+        let mut parser = Parser::new("(cat|dog)+");
+        let result = parser.parse().unwrap();
+        assert_eq!(
+            result,
+            vec![RegexNode::new_group(
+                GroupKind::Capturing(None),
+                vec![RegexNode::new_alternation(vec![
+                    vec![
+                        RegexNode::new_literal('c'),
+                        RegexNode::new_literal('a'),
+                        RegexNode::new_literal('t'),
+                    ],
+                    vec![
+                        RegexNode::new_literal('d'),
+                        RegexNode::new_literal('o'),
+                        RegexNode::new_literal('g'),
+                    ],
+                ])],
+            ).with_quantifier(Quantifier::OneOrMore { lazy: false })]
+        );
+    }
+
+    #[test]
+    fn test_alternation_with_character_types() {
+        let mut parser = Parser::new("\\w+|\\d+");
+        let result = parser.parse().unwrap();
+        assert_eq!(
+            result,
+            vec![RegexNode::new_alternation(vec![
+                vec![RegexNode::new_character_type(CharacterTypeKind::Word)
+                    .with_quantifier(Quantifier::OneOrMore { lazy: false })],
+                vec![RegexNode::new_character_type(CharacterTypeKind::Digit)
+                    .with_quantifier(Quantifier::OneOrMore { lazy: false })],
+            ])]
+        );
+    }
+
+    #[test]
+    fn test_alternation_with_surrounding_context() {
+        let mut parser = Parser::new("a(b|c)d");
+        let result = parser.parse().unwrap();
+        assert_eq!(
+            result,
+            vec![
+                RegexNode::new_literal('a'),
+                RegexNode::new_group(
+                    GroupKind::Capturing(None),
+                    vec![RegexNode::new_alternation(vec![
+                        vec![RegexNode::new_literal('b')],
+                        vec![RegexNode::new_literal('c')],
+                    ])],
+                ),
+                RegexNode::new_literal('d'),
+            ]
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_empty_alternation() {
+        let mut parser = Parser::new("a||b");
+        parser.parse().unwrap();
     }
 }
