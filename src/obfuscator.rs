@@ -1,4 +1,4 @@
-use crate::ast::RegexNode;
+use crate::ast::{RegexNode, GroupKind};
 use rand::thread_rng;
 
 pub struct Obfuscator {
@@ -22,11 +22,25 @@ impl Obfuscator {
         match node {
             RegexNode::Literal(c) => self.obfuscate_literal(c),
             RegexNode::CharacterClass { negated, chars } => {
-                RegexNode::CharacterClass {
-                    negated,
-                    chars: chars.into_iter()
-                        .map(|c| c)  // Will be replaced with Unicode escapes in string conversion
-                        .collect(),
+                if negated {
+                    // Keep negated character classes as is for now
+                    RegexNode::CharacterClass { negated, chars }
+                } else {
+                    // Convert character class to alternation of single-char classes
+                    let alternatives: Vec<Vec<RegexNode>> = chars.into_iter()
+                        .map(|c| {
+                            vec![RegexNode::CharacterClass {
+                                negated: false,
+                                chars: vec![c],
+                            }]
+                        })
+                        .collect();
+
+                    // Wrap in a non-capturing group
+                    RegexNode::Group(
+                        GroupKind::NonCapturing,
+                        vec![RegexNode::Alternation(alternatives)]
+                    )
                 }
             }
             RegexNode::Quantified { node, quantifier } => RegexNode::Quantified {
@@ -57,7 +71,7 @@ impl Obfuscator {
     fn obfuscate_literal(&mut self, c: char) -> RegexNode {
         RegexNode::CharacterClass {
             negated: false,
-            chars: vec![c],  // Will be converted to Unicode escape in string conversion
+            chars: vec![c],
         }
     }
 } 
